@@ -49,7 +49,7 @@ function MessageBubble({ message, isMine }) {
                     : 'bg-gray-100 text-gray-900 rounded-bl-none'
                     }`}
             >
-                <p className="text-sm break-words">{message.text}</p>
+                <p className="text-sm wrap-break-word">{message.text}</p>
                 <p
                     className={`mt-1 text-xs ${isMine ? 'text-red-100' : 'text-gray-500'
                         }`}
@@ -75,13 +75,14 @@ export default function ChatPage() {
     const [_actionMessage, setActionMessage] = useState('')
     const [chatStarted, setChatStarted] = useState(false)
     const [showSafetyMenu, setShowSafetyMenu] = useState(false)
-    const [keyboardHeight, setKeyboardHeight] = useState(0)
+    const [keyboardOffset, setKeyboardOffset] = useState(0)
+    const [bottomDockHeight, setBottomDockHeight] = useState(96)
     const [isTyping, setIsTyping] = useState(false)
     const [permission, setPermission] = useState(null)
     const [togglingMaleFirst, setTogglingMaleFirst] = useState(false)
 
     const messagesEndRef = useRef(null)
-    const inputRef = useRef(null)
+    const bottomDockRef = useRef(null)
     const messagesContainerRef = useRef(null)
     const textareaRef = useRef(null)
 
@@ -94,35 +95,58 @@ export default function ChatPage() {
         scrollToBottom()
     }, [messages])
 
-    // Handle keyboard visibility on mobile
+    // Keep bottom dock aligned with mobile keyboard using Visual Viewport API.
     useEffect(() => {
-        const handleResize = () => {
-            if (window.visualViewport) {
-                const viewportHeight = window.visualViewport.height
-                const screenHeight = window.screen.height
-                const keyboardHeight = screenHeight - viewportHeight
-                setKeyboardHeight(Math.max(0, keyboardHeight))
-            }
+        if (!window.visualViewport) {
+            setKeyboardOffset(0)
+            return undefined
         }
 
-        window.addEventListener('resize', handleResize)
-        if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', handleResize)
+        let rafId = null
+
+        const updateViewportInset = () => {
+            if (rafId !== null) {
+                cancelAnimationFrame(rafId)
+            }
+
+            rafId = requestAnimationFrame(() => {
+                const viewport = window.visualViewport
+                if (!viewport) {
+                    setKeyboardOffset(0)
+                    return
+                }
+
+                const overlap = window.innerHeight - viewport.height - viewport.offsetTop
+                setKeyboardOffset(Math.max(0, Math.round(overlap)))
+            })
         }
+
+        updateViewportInset()
+        window.visualViewport.addEventListener('resize', updateViewportInset)
+        window.visualViewport.addEventListener('scroll', updateViewportInset)
+        window.addEventListener('resize', updateViewportInset)
+        window.addEventListener('orientationchange', updateViewportInset)
 
         return () => {
-            window.removeEventListener('resize', handleResize)
             if (window.visualViewport) {
-                window.visualViewport.removeEventListener('resize', handleResize)
+                window.visualViewport.removeEventListener('resize', updateViewportInset)
+                window.visualViewport.removeEventListener('scroll', updateViewportInset)
+            }
+
+            window.removeEventListener('resize', updateViewportInset)
+            window.removeEventListener('orientationchange', updateViewportInset)
+
+            if (rafId !== null) {
+                cancelAnimationFrame(rafId)
             }
         }
     }, [])
 
     // Auto focus input
     useEffect(() => {
-        if (!loading && inputRef.current) {
+        if (!loading && textareaRef.current) {
             setTimeout(() => {
-                inputRef.current?.focus()
+                textareaRef.current?.focus()
             }, 300)
         }
     }, [loading])
@@ -206,16 +230,57 @@ export default function ChatPage() {
         !loading &&
         match &&
         (messages.length > 0 || match.status === 'unlocked' || (femaleCanStartChat && chatStarted)) &&
-        permission.allowed
+        permission?.allowed
+
+    const bottomDockStyle = {
+        transform: keyboardOffset > 0 ? `translateY(-${keyboardOffset}px)` : undefined,
+        paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))',
+    }
+
+    const messageListBottomPadding = Math.max(96, bottomDockHeight + keyboardOffset + 16)
+
+    useEffect(() => {
+        const dockElement = bottomDockRef.current
+
+        if (!dockElement) {
+            setBottomDockHeight(0)
+            return undefined
+        }
+
+        const updateDockHeight = () => {
+            const nextHeight = dockElement.getBoundingClientRect().height
+            setBottomDockHeight(Math.ceil(nextHeight))
+        }
+
+        updateDockHeight()
+
+        if (typeof ResizeObserver === 'undefined') {
+            return undefined
+        }
+
+        const observer = new ResizeObserver(updateDockHeight)
+        observer.observe(dockElement)
+
+        return () => {
+            observer.disconnect()
+        }
+    }, [femaleCanStartChat, chatStarted, waitingForFemaleFirstMessage, canShowComposer, permission?.allowed])
+
+    useEffect(() => {
+        if (keyboardOffset > 0) {
+            scrollToBottom()
+        }
+    }, [keyboardOffset])
 
     const handleSendMessage = async (event) => {
         event.preventDefault()
         setError('')
         setActionMessage('')
 
-        if (!permission.allowed) {
-            setError(permission.reason)
-            notify.error(permission.reason)
+        if (!permission?.allowed) {
+            const blockedReason = permission?.reason || 'Cannot send messages right now.'
+            setError(blockedReason)
+            notify.error(blockedReason)
             return
         }
 
@@ -492,7 +557,8 @@ export default function ChatPage() {
             {/* Messages Area */}
             <div
                 ref={messagesContainerRef}
-                className="flex-1 overflow-y-auto pt-20 pb-48 px-4 max-w-5xl mx-auto w-full space-y-3"
+                className="flex-1 overflow-y-auto pt-20 px-4 max-w-5xl mx-auto w-full space-y-3"
+                style={{ paddingBottom: `${messageListBottomPadding}px` }}
             >
                 {messages.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
@@ -532,7 +598,11 @@ export default function ChatPage() {
 
             {/* Input Area */}
             {femaleCanStartChat && !chatStarted ? (
-                <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-40">
+                <div
+                    ref={bottomDockRef}
+                    className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-40"
+                    style={bottomDockStyle}
+                >
                     <button
                         type="button"
                         onClick={() => setChatStarted(true)}
@@ -542,7 +612,11 @@ export default function ChatPage() {
                     </button>
                 </div>
             ) : permission && !permission.allowed && waitingForFemaleFirstMessage ? (
-                <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-40">
+                <div
+                    ref={bottomDockRef}
+                    className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-40"
+                    style={bottomDockStyle}
+                >
                     <div className="max-w-5xl mx-auto rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-center">
                         <p className="text-sm font-medium text-blue-900">
                             ⏳ Waiting for her to start the conversation...
@@ -554,10 +628,10 @@ export default function ChatPage() {
                 </div>
             ) : canShowComposer ? (
                 <form
-                    ref={inputRef}
+                    ref={bottomDockRef}
                     onSubmit={handleSendMessage}
                     className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-40"
-                    style={{ paddingBottom: `${12 + keyboardHeight}px` }}
+                    style={bottomDockStyle}
                 >
                     <div className="flex items-end gap-2 max-w-5xl mx-auto">
                         <textarea
@@ -574,7 +648,7 @@ export default function ChatPage() {
                             }}
                         />
                         <button
-                            className="rounded-full bg-[#E11D48] p-3 text-white transition hover:bg-[#BE123C] disabled:cursor-not-allowed disabled:bg-gray-300 flex-shrink-0"
+                            className="rounded-full bg-[#E11D48] p-3 text-white transition hover:bg-[#BE123C] disabled:cursor-not-allowed disabled:bg-gray-300 shrink-0"
                             type="submit"
                             disabled={busy || !draft.trim()}
                             title="Send message"
@@ -584,7 +658,11 @@ export default function ChatPage() {
                     </div>
                 </form>
             ) : permission && !permission.allowed ? (
-                <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-40">
+                <div
+                    ref={bottomDockRef}
+                    className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-40"
+                    style={bottomDockStyle}
+                >
                     <div className="max-w-5xl mx-auto rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-center">
                         <p className="text-sm font-medium text-red-900">
                             {permission.reason || 'Cannot send messages at this time'}
