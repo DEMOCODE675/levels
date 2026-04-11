@@ -4,6 +4,7 @@ import BrandMark from './BrandMark'
 
 export default function ProtectedRoute({ children, requireProfile = false }) {
     const { user, profile, loading } = useAuth()
+    const hasProfilePhoto = Boolean(profile?.photoUrl)
 
     if (loading) {
         return (
@@ -23,8 +24,8 @@ export default function ProtectedRoute({ children, requireProfile = false }) {
         return <Navigate to="/auth" replace />
     }
 
-    if (requireProfile && !profile) {
-        return <Navigate to="/profile" replace />
+    if (requireProfile && (!profile || !hasProfilePhoto)) {
+        return <Navigate to="/profile?edit=1" replace />
     }
 
     return children

@@ -13,6 +13,24 @@ import { db } from '../firebase/config'
 
 const MATCH_EXPIRY_HOURS = 24
 
+function isMaleMaleMatch(match) {
+    if (!match?.members || match.members.length !== 2) {
+        return false
+    }
+
+    const memberDetails = match.memberDetails || {}
+    const genders = match.members
+        .map((memberId) => memberDetails?.[memberId]?.gender)
+        .filter(Boolean)
+        .map((value) => String(value).toLowerCase())
+
+    if (genders.length !== 2) {
+        return false
+    }
+
+    return genders.every((gender) => gender === 'male')
+}
+
 /**
  * Check if a match has expired (24 hours with no first message)
  */
@@ -123,6 +141,19 @@ export function getFullMessagePermission(match, currentUserId) {
 
     // If pending status (no first message sent yet)
     if (match.status === 'pending') {
+        if (isMaleMaleMatch(match)) {
+            return {
+                allowed: true,
+                canChat: true,
+                canStartChat: true,
+                isFirstMessage: true,
+                isFemaleUser: false,
+                allowMaleFirst: true,
+                reason: '',
+                waitingReason: null,
+            }
+        }
+
         const isFemaleUser = match.femaleUserId === currentUserId
         const allowMaleFirst = match.allowMaleFirst || false
 

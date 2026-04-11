@@ -44,6 +44,7 @@ export default function AuthPage() {
 
     const { profile, refreshProfile, user } = useAuth()
     const navigate = useNavigate()
+    const hasProfilePhoto = Boolean(profile?.photoUrl)
 
     const allowedDomain = getAllowedCollegeDomains()[0] || 'miet.ac.in'
 
@@ -52,8 +53,8 @@ export default function AuthPage() {
             return
         }
 
-        navigate(profile ? '/swipe' : '/profile', { replace: true })
-    }, [navigate, profile, user])
+        navigate(profile && hasProfilePhoto ? '/swipe' : '/profile?edit=1', { replace: true })
+    }, [hasProfilePhoto, navigate, profile, user])
 
     const handleChange = (event) => {
         const { name, value } = event.target
@@ -94,7 +95,7 @@ export default function AuthPage() {
                     : await loginWithEmail(email, password)
 
             const latestProfile = await refreshProfile(userCredential.user.uid)
-            navigate(latestProfile ? '/swipe' : '/profile', { replace: true })
+            navigate(latestProfile?.photoUrl ? '/swipe' : '/profile?edit=1', { replace: true })
         } catch (authError) {
             setError(getFriendlyAuthError(authError))
         } finally {

@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import { AnimatePresence, motion } from 'framer-motion'
+import {
+    AlertTriangle,
+    ArrowLeft,
+    Ban,
+    MoreVertical,
+    SendHorizontal,
+    ShieldAlert,
+} from 'lucide-react'
+import TextareaAutosize from 'react-textarea-autosize'
 import { useAuth } from '../hooks/useAuth'
 import { notify } from '../lib/notify'
 import {
@@ -12,22 +23,6 @@ import {
 } from '../services/chatService'
 import { toggleAllowMaleFirst, cleanupExpiredMatches } from '../services/matchService'
 import BrandMark from '../components/BrandMark'
-
-function ThreeDotIcon() {
-    return (
-        <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-            <path d="M10.5 1.5H9.5V3.5H10.5V1.5ZM10.5 8H9.5V10H10.5V8ZM10.5 14.5H9.5V16.5H10.5V14.5Z" />
-        </svg>
-    )
-}
-
-function SendIcon() {
-    return (
-        <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M16.6915026,12.4744748 L3.50612381,13.2599618 C3.19218622,13.2599618 3.03521743,13.4170592 3.03521743,13.5741566 L1.15159189,20.0151496 C0.8376543,20.8006365 0.99,21.89 1.77946707,22.52 C2.41,22.99 3.50612381,23.1 4.13399899,22.8429026 L21.714504,14.0454487 C22.6563168,13.5741566 23.1272231,12.6315722 22.9702544,11.6889879 L4.13399899,1.16142766 C3.34915502,0.9 2.40734225,0.9 1.77946707,1.4953874 C0.994623095,2.08026972 0.837654326,3.0228539 1.15159189,3.8083408 L3.03521743,10.2493339 C3.03521743,10.4064313 3.34915502,10.5635286 3.50612381,10.5635286 L16.6915026,11.3490155 C16.6915026,11.3490155 17.1624089,11.3490155 17.1624089,10.8777233 L17.1624089,12.0031671 C17.1624089,12.4744748 16.6915026,12.4744748 16.6915026,12.4744748 Z" />
-        </svg>
-    )
-}
 
 function formatTimestamp(timestamp) {
     if (!timestamp || typeof timestamp.toDate !== 'function') {
@@ -42,11 +37,17 @@ function formatTimestamp(timestamp) {
 
 function MessageBubble({ message, isMine }) {
     return (
-        <div className={`flex gap-2 animate-fade-in ${isMine ? 'flex-row-reverse' : ''}`}>
+        <motion.div
+            layout
+            initial={{ opacity: 0, y: 10, scale: 0.985 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className={`flex gap-2 ${isMine ? 'justify-end' : ''}`}
+        >
             <article
-                className={`max-w-xs px-4 py-2 rounded-2xl ${isMine
-                    ? 'bg-[#E11D48] text-white rounded-br-none'
-                    : 'bg-gray-100 text-gray-900 rounded-bl-none'
+                className={`max-w-[82%] rounded-3xl px-4 py-2.5 shadow-sm sm:max-w-md ${isMine
+                    ? 'rounded-br-md bg-[#E11D48] text-white'
+                    : 'rounded-bl-md border border-white/70 bg-white text-gray-900'
                     }`}
             >
                 <p className="text-sm wrap-break-word">{message.text}</p>
@@ -57,7 +58,7 @@ function MessageBubble({ message, isMine }) {
                     {formatTimestamp(message.createdAt)}
                 </p>
             </article>
-        </div>
+        </motion.div>
     )
 }
 
@@ -74,7 +75,7 @@ export default function ChatPage() {
     const [error, setError] = useState('')
     const [_actionMessage, setActionMessage] = useState('')
     const [chatStarted, setChatStarted] = useState(false)
-    const [showSafetyMenu, setShowSafetyMenu] = useState(false)
+    const [safetyMenuOpen, setSafetyMenuOpen] = useState(false)
     const [keyboardOffset, setKeyboardOffset] = useState(0)
     const [bottomDockHeight, setBottomDockHeight] = useState(96)
     const [isTyping, setIsTyping] = useState(false)
@@ -226,10 +227,15 @@ export default function ChatPage() {
         messages.length === 0 &&
         match.femaleUserId === user?.uid
 
+    const canStartPendingChat =
+        match?.status === 'pending' &&
+        messages.length === 0 &&
+        permission?.canStartChat
+
     const canShowComposer =
         !loading &&
         match &&
-        (messages.length > 0 || match.status === 'unlocked' || (femaleCanStartChat && chatStarted)) &&
+        (messages.length > 0 || match.status === 'unlocked' || (canStartPendingChat && (isFemaleUser ? chatStarted : true))) &&
         permission?.allowed
 
     const bottomDockStyle = {
@@ -264,7 +270,7 @@ export default function ChatPage() {
         return () => {
             observer.disconnect()
         }
-    }, [femaleCanStartChat, chatStarted, waitingForFemaleFirstMessage, canShowComposer, permission?.allowed])
+    }, [femaleCanStartChat, chatStarted, waitingForFemaleFirstMessage, canShowComposer, permission?.allowed, canStartPendingChat, isFemaleUser])
 
     useEffect(() => {
         if (keyboardOffset > 0) {
@@ -447,16 +453,17 @@ export default function ChatPage() {
     }
 
     return (
-        <div className="h-screen w-full bg-gray-50 flex flex-col fixed inset-0">
+        <div className="fixed inset-0 flex h-screen w-full flex-col bg-[radial-gradient(circle_at_top,#ffe4ea_0%,#f9fafb_45%,#f3f4f6_100%)]">
             {/* Header */}
-            <header className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 px-4 py-3 z-40">
+            <header className="fixed left-0 right-0 top-0 z-40 border-b border-gray-200/80 bg-white/90 px-4 py-3 backdrop-blur">
                 <div className="flex items-center justify-between gap-3 max-w-5xl mx-auto">
                     <div className="flex items-center gap-3 flex-1">
                         <Link
                             to="/matches"
-                            className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 transition hover:bg-gray-50"
+                            className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 transition hover:bg-gray-50"
                         >
-                            ← Back
+                            <ArrowLeft className="h-3.5 w-3.5" />
+                            Back
                         </Link>
                         <BrandMark compact className="shrink-0" />
                         <img
@@ -471,44 +478,50 @@ export default function ChatPage() {
                             </p>
                         </div>
                     </div>
-                    <div className="relative">
-                        <button
-                            onClick={() => setShowSafetyMenu(!showSafetyMenu)}
-                            className="rounded-lg border border-gray-200 bg-white p-2 text-gray-700 transition hover:bg-gray-50"
-                        >
-                            <ThreeDotIcon />
-                        </button>
-                        {showSafetyMenu && (
-                            <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-gray-200 bg-white p-3 shadow-lg z-50 max-h-96 overflow-y-auto">
-                                {/* Female-first messaging toggle */}
+                    <DropdownMenu.Root open={safetyMenuOpen} onOpenChange={setSafetyMenuOpen}>
+                        <DropdownMenu.Trigger asChild>
+                            <button
+                                className="rounded-lg border border-gray-200 bg-white p-2 text-gray-700 transition hover:bg-gray-50"
+                                title="Open chat controls"
+                            >
+                                <MoreVertical className="h-4 w-4" />
+                            </button>
+                        </DropdownMenu.Trigger>
+                        <DropdownMenu.Portal>
+                            <DropdownMenu.Content
+                                align="end"
+                                sideOffset={8}
+                                className="z-50 w-64 rounded-2xl border border-gray-200 bg-white p-3 shadow-xl outline-none"
+                            >
                                 {isFemaleUser && match?.status === 'pending' && (
-                                    <>
-                                        <div className="mb-3 pb-3 border-b border-gray-200">
-                                            <h3 className="text-sm font-bold text-gray-900 mb-2">Chat Control</h3>
-                                            <label className="flex items-center gap-2 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={allowMaleFirst}
-                                                    onChange={handleToggleMaleFirst}
-                                                    disabled={togglingMaleFirst}
-                                                    className="w-4 h-4 rounded border-gray-300"
-                                                />
-                                                <span className="text-xs font-medium text-gray-700">
-                                                    Let him message first
-                                                </span>
-                                            </label>
-                                            <p className="text-xs text-gray-500 mt-1">
-                                                {allowMaleFirst
-                                                    ? 'He can now start the conversation'
-                                                    : 'Only you can send the first message'}
-                                            </p>
-                                        </div>
-                                    </>
+                                    <div className="mb-3 border-b border-gray-200 pb-3">
+                                        <h3 className="mb-2 text-sm font-bold text-gray-900">Chat Control</h3>
+                                        <label className="flex cursor-pointer items-center gap-2">
+                                            <input
+                                                type="checkbox"
+                                                checked={allowMaleFirst}
+                                                onChange={handleToggleMaleFirst}
+                                                disabled={togglingMaleFirst}
+                                                className="h-4 w-4 rounded border-gray-300"
+                                            />
+                                            <span className="text-xs font-medium text-gray-700">
+                                                Let him message first
+                                            </span>
+                                        </label>
+                                        <p className="mt-1 text-xs text-gray-500">
+                                            {allowMaleFirst
+                                                ? 'He can now start the conversation'
+                                                : 'Only you can send the first message'}
+                                        </p>
+                                    </div>
                                 )}
 
-                                <h3 className="text-sm font-bold text-gray-900 mb-3">Safety</h3>
+                                <div className="mb-3 flex items-center gap-2 text-gray-900">
+                                    <ShieldAlert className="h-4 w-4" />
+                                    <h3 className="text-sm font-bold">Safety</h3>
+                                </div>
 
-                                <label className="block mb-3">
+                                <label className="mb-3 block">
                                     <span className="mb-1.5 block text-xs font-semibold text-gray-500">Report reason</span>
                                     <input
                                         value={reportReason}
@@ -523,22 +536,24 @@ export default function ChatPage() {
                                         type="button"
                                         onClick={() => {
                                             handleReport()
-                                            setShowSafetyMenu(false)
+                                            setSafetyMenuOpen(false)
                                         }}
                                         disabled={busy || !reportReason.trim()}
-                                        className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                                     >
+                                        <AlertTriangle className="h-3.5 w-3.5" />
                                         Report user
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => {
                                             handleBlock()
-                                            setShowSafetyMenu(false)
+                                            setSafetyMenuOpen(false)
                                         }}
                                         disabled={busy}
-                                        className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                                     >
+                                        <Ban className="h-3.5 w-3.5" />
                                         Block user
                                     </button>
                                 </div>
@@ -548,49 +563,62 @@ export default function ChatPage() {
                                         {error}
                                     </p>
                                 ) : null}
-                            </div>
-                        )}
-                    </div>
+                            </DropdownMenu.Content>
+                        </DropdownMenu.Portal>
+                    </DropdownMenu.Root>
                 </div>
             </header>
 
             {/* Messages Area */}
             <div
                 ref={messagesContainerRef}
-                className="flex-1 overflow-y-auto pt-20 px-4 max-w-5xl mx-auto w-full space-y-3"
+                className="mx-auto w-full max-w-5xl flex-1 space-y-3 overflow-y-auto px-4 pt-20"
                 style={{ paddingBottom: `${messageListBottomPadding}px` }}
             >
                 {messages.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
-                        <p className="text-center text-sm text-gray-500">
+                        <p className="rounded-2xl border border-gray-200/80 bg-white/80 px-4 py-2 text-center text-sm text-gray-500 shadow-sm">
                             {waitingForFemaleFirstMessage
                                 ? 'Waiting for her to start...'
                                 : 'No messages yet. Start the conversation!'}
                         </p>
                     </div>
                 ) : (
-                    messages.map((message) => {
-                        const isMine = message.senderId === user.uid
-                        return (
-                            <MessageBubble
-                                key={message.id}
-                                message={message}
-                                isMine={isMine}
-                                user={user}
-                            />
-                        )
-                    })
+                    <>
+                        <div className="sticky top-0 z-10 flex justify-center pb-1 pt-1">
+                            <span className="rounded-full border border-gray-200/80 bg-white/85 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 shadow-sm backdrop-blur">
+                                Today
+                            </span>
+                        </div>
+                        <AnimatePresence initial={false}>
+                            {messages.map((message) => {
+                                const isMine = message.senderId === user.uid
+                                return (
+                                    <MessageBubble
+                                        key={message.id}
+                                        message={message}
+                                        isMine={isMine}
+                                        user={user}
+                                    />
+                                )
+                            })}
+                        </AnimatePresence>
+                    </>
                 )}
 
                 {/* Typing indicator */}
                 {isTyping && (
-                    <div className="flex gap-2">
-                        <div className="space-x-1 flex">
+                    <motion.div
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex gap-2"
+                    >
+                        <div className="flex space-x-1 rounded-full border border-gray-200 bg-white px-3 py-2 shadow-sm">
                             <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce"></span>
                             <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></span>
                             <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
                         </div>
-                    </div>
+                    </motion.div>
                 )}
 
                 <div ref={messagesEndRef} />
@@ -630,22 +658,19 @@ export default function ChatPage() {
                 <form
                     ref={bottomDockRef}
                     onSubmit={handleSendMessage}
-                    className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-40"
+                    className="fixed bottom-0 left-0 right-0 z-40 border-t border-gray-200 bg-white px-4 py-3"
                     style={bottomDockStyle}
                 >
                     <div className="flex items-end gap-2 max-w-5xl mx-auto">
-                        <textarea
+                        <TextareaAutosize
                             ref={textareaRef}
                             value={draft}
                             onChange={handleTypingChange}
                             onKeyDown={handleKeyDown}
                             placeholder="Type a message..."
-                            rows={1}
-                            className="flex-1 max-h-24 resize-none rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-[#E11D48] focus:ring-2 focus:ring-red-100 focus:ring-opacity-50"
-                            style={{
-                                minHeight: '44px',
-                                overflow: draft.split('\n').length > 3 ? 'auto' : 'hidden',
-                            }}
+                            minRows={1}
+                            maxRows={4}
+                            className="flex-1 resize-none rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-[#E11D48] focus:ring-2 focus:ring-red-100"
                         />
                         <button
                             className="rounded-full bg-[#E11D48] p-3 text-white transition hover:bg-[#BE123C] disabled:cursor-not-allowed disabled:bg-gray-300 shrink-0"
@@ -653,7 +678,7 @@ export default function ChatPage() {
                             disabled={busy || !draft.trim()}
                             title="Send message"
                         >
-                            <SendIcon />
+                            <SendHorizontal className="h-5 w-5" />
                         </button>
                     </div>
                 </form>

@@ -13,6 +13,7 @@ import BrandMark from './components/BrandMark'
 
 function HomeRedirect() {
   const { user, profile, loading } = useAuth()
+  const hasProfilePhoto = Boolean(profile?.photoUrl)
 
   if (loading) {
     return (
@@ -29,8 +30,8 @@ function HomeRedirect() {
     return <Navigate to="/auth" replace />
   }
 
-  if (!profile) {
-    return <Navigate to="/profile" replace />
+  if (!profile || !hasProfilePhoto) {
+    return <Navigate to="/profile?edit=1" replace />
   }
 
   return <Navigate to="/swipe" replace />
