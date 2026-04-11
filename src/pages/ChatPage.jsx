@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { AnimatePresence, motion } from 'framer-motion'
 import {
     AlertTriangle,
     ArrowLeft,
@@ -35,15 +34,9 @@ function formatTimestamp(timestamp) {
     })
 }
 
-function MessageBubble({ message, isMine }) {
+const MessageBubble = memo(function MessageBubble({ message, isMine }) {
     return (
-        <motion.div
-            layout
-            initial={{ opacity: 0, y: 10, scale: 0.985 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className={`flex gap-2 ${isMine ? 'justify-end' : ''}`}
-        >
+        <div className={`flex gap-2 ${isMine ? 'justify-end' : ''}`}>
             <article
                 className={`max-w-[82%] rounded-3xl px-4 py-2.5 shadow-sm sm:max-w-md ${isMine
                     ? 'rounded-br-md bg-[#E11D48] text-white'
@@ -58,9 +51,9 @@ function MessageBubble({ message, isMine }) {
                     {formatTimestamp(message.createdAt)}
                 </p>
             </article>
-        </motion.div>
+        </div>
     )
-}
+})
 
 export default function ChatPage() {
     const { matchId } = useParams()
@@ -78,7 +71,6 @@ export default function ChatPage() {
     const [safetyMenuOpen, setSafetyMenuOpen] = useState(false)
     const [keyboardOffset, setKeyboardOffset] = useState(0)
     const [bottomDockHeight, setBottomDockHeight] = useState(96)
-    const [isTyping, setIsTyping] = useState(false)
     const [permission, setPermission] = useState(null)
     const [togglingMaleFirst, setTogglingMaleFirst] = useState(false)
 
@@ -86,14 +78,25 @@ export default function ChatPage() {
     const bottomDockRef = useRef(null)
     const messagesContainerRef = useRef(null)
     const textareaRef = useRef(null)
+    const hasRenderedMessagesRef = useRef(false)
+    const shouldStickToBottomRef = useRef(true)
 
     // Auto scroll to latest message
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const scrollToBottom = (behavior = 'auto') => {
+        messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' })
     }
 
     useEffect(() => {
-        scrollToBottom()
+        if (messages.length === 0) {
+            return
+        }
+
+        if (!shouldStickToBottomRef.current && hasRenderedMessagesRef.current) {
+            return
+        }
+
+        scrollToBottom(hasRenderedMessagesRef.current ? 'smooth' : 'auto')
+        hasRenderedMessagesRef.current = true
     }, [messages])
 
     // Keep bottom dock aligned with mobile keyboard using Visual Viewport API.
@@ -118,20 +121,21 @@ export default function ChatPage() {
                 }
 
                 const overlap = window.innerHeight - viewport.height - viewport.offsetTop
-                setKeyboardOffset(Math.max(0, Math.round(overlap)))
+                const nextOffset = Math.max(0, Math.round(overlap))
+                setKeyboardOffset((currentOffset) =>
+                    currentOffset === nextOffset ? currentOffset : nextOffset,
+                )
             })
         }
 
         updateViewportInset()
         window.visualViewport.addEventListener('resize', updateViewportInset)
-        window.visualViewport.addEventListener('scroll', updateViewportInset)
         window.addEventListener('resize', updateViewportInset)
         window.addEventListener('orientationchange', updateViewportInset)
 
         return () => {
             if (window.visualViewport) {
                 window.visualViewport.removeEventListener('resize', updateViewportInset)
-                window.visualViewport.removeEventListener('scroll', updateViewportInset)
             }
 
             window.removeEventListener('resize', updateViewportInset)
@@ -238,6 +242,15 @@ export default function ChatPage() {
         (messages.length > 0 || match.status === 'unlocked' || (canStartPendingChat && (isFemaleUser ? chatStarted : true))) &&
         permission?.allowed
 
+    const renderedMessages = useMemo(
+        () =>
+            messages.map((message) => {
+                const isMine = message.senderId === user?.uid
+                return <MessageBubble key={message.id} message={message} isMine={isMine} />
+            }),
+        [messages, user?.uid],
+    )
+
     const bottomDockStyle = {
         transform: keyboardOffset > 0 ? `translateY(-${keyboardOffset}px)` : undefined,
         paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))',
@@ -273,10 +286,17 @@ export default function ChatPage() {
     }, [femaleCanStartChat, chatStarted, waitingForFemaleFirstMessage, canShowComposer, permission?.allowed, canStartPendingChat, isFemaleUser])
 
     useEffect(() => {
-        if (keyboardOffset > 0) {
-            scrollToBottom()
+        if (keyboardOffset > 0 && shouldStickToBottomRef.current) {
+            scrollToBottom('auto')
         }
     }, [keyboardOffset])
+
+    const handleMessagesScroll = (event) => {
+        const container = event.currentTarget
+        const distanceFromBottom =
+            container.scrollHeight - container.scrollTop - container.clientHeight
+        shouldStickToBottomRef.current = distanceFromBottom < 96
+    }
 
     const handleSendMessage = async (event) => {
         event.preventDefault()
@@ -321,12 +341,6 @@ export default function ChatPage() {
             event.preventDefault()
             handleSendMessage(event)
         }
-    }
-
-    const handleTypingChange = (event) => {
-        setDraft(event.target.value)
-        setIsTyping(true)
-        setTimeout(() => setIsTyping(false), 1000)
     }
 
     const handleReport = async () => {
@@ -453,9 +467,9 @@ export default function ChatPage() {
     }
 
     return (
-        <div className="fixed inset-0 flex h-screen w-full flex-col bg-[radial-gradient(circle_at_top,#ffe4ea_0%,#f9fafb_45%,#f3f4f6_100%)]">
+        <div className="fixed inset-0 flex h-screen w-full flex-col bg-gray-50">
             {/* Header */}
-            <header className="fixed left-0 right-0 top-0 z-40 border-b border-gray-200/80 bg-white/90 px-4 py-3 backdrop-blur">
+            <header className="fixed left-0 right-0 top-0 z-40 border-b border-gray-200 bg-white px-4 py-3">
                 <div className="flex items-center justify-between gap-3 max-w-5xl mx-auto">
                     <div className="flex items-center gap-3 flex-1">
                         <Link
@@ -572,8 +586,12 @@ export default function ChatPage() {
             {/* Messages Area */}
             <div
                 ref={messagesContainerRef}
-                className="mx-auto w-full max-w-5xl flex-1 space-y-3 overflow-y-auto px-4 pt-20"
-                style={{ paddingBottom: `${messageListBottomPadding}px` }}
+                onScroll={handleMessagesScroll}
+                className="mx-auto w-full max-w-5xl flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 pt-20 touch-pan-y"
+                style={{
+                    paddingBottom: `${messageListBottomPadding}px`,
+                    WebkitOverflowScrolling: 'touch',
+                }}
             >
                 {messages.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
@@ -586,39 +604,12 @@ export default function ChatPage() {
                 ) : (
                     <>
                         <div className="sticky top-0 z-10 flex justify-center pb-1 pt-1">
-                            <span className="rounded-full border border-gray-200/80 bg-white/85 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 shadow-sm backdrop-blur">
+                            <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 shadow-sm">
                                 Today
                             </span>
                         </div>
-                        <AnimatePresence initial={false}>
-                            {messages.map((message) => {
-                                const isMine = message.senderId === user.uid
-                                return (
-                                    <MessageBubble
-                                        key={message.id}
-                                        message={message}
-                                        isMine={isMine}
-                                        user={user}
-                                    />
-                                )
-                            })}
-                        </AnimatePresence>
+                        {renderedMessages}
                     </>
-                )}
-
-                {/* Typing indicator */}
-                {isTyping && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="flex gap-2"
-                    >
-                        <div className="flex space-x-1 rounded-full border border-gray-200 bg-white px-3 py-2 shadow-sm">
-                            <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce"></span>
-                            <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></span>
-                            <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
-                        </div>
-                    </motion.div>
                 )}
 
                 <div ref={messagesEndRef} />
@@ -665,7 +656,7 @@ export default function ChatPage() {
                         <TextareaAutosize
                             ref={textareaRef}
                             value={draft}
-                            onChange={handleTypingChange}
+                            onChange={(event) => setDraft(event.target.value)}
                             onKeyDown={handleKeyDown}
                             placeholder="Type a message..."
                             minRows={1}
