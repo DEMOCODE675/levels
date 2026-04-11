@@ -1,44 +1,55 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import {
-    getAllowedCollegeDomains,
-    isCollegeEmail,
-    loginWithEmail,
-    signUpWithCollegeEmail,
-} from '../services/authService'
+import { continueWithGoogleCollege, getAllowedCollegeDomains } from '../services/authService'
 import BrandMark from '../components/BrandMark'
 
-const INITIAL_FORM = {
-    email: '',
-    password: '',
+function GoogleIcon() {
+    return (
+        <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24">
+            <path
+                d="M21.805 10.023h-9.76v3.955h5.605c-.457 2.55-2.63 3.957-5.605 3.957-3.409 0-6.171-2.82-6.171-6.302s2.762-6.301 6.171-6.301c1.54 0 2.94.594 4.006 1.563l2.826-2.88C17.084 2.312 14.703 1.3 12.045 1.3 6.472 1.3 1.955 5.914 1.955 11.633s4.517 10.334 10.09 10.334c5.826 0 9.662-4.197 9.662-10.103 0-.68-.07-1.19-.202-1.84z"
+                fill="#FBBB00"
+            />
+            <path
+                d="M3.119 6.225l3.257 2.447c.88-2.007 2.84-3.34 5.669-3.34 1.54 0 2.94.594 4.006 1.563l2.826-2.88C17.084 2.312 14.703 1.3 12.045 1.3 8.166 1.3 4.792 3.531 3.119 6.225z"
+                fill="#EA4335"
+            />
+            <path
+                d="M12.045 21.967c2.591 0 4.942-.979 6.715-2.814l-3.102-2.469c-.88.637-2.012 1.251-3.613 1.251-2.92 0-5.083-1.971-5.593-4.626L3.24 15.82c1.655 3.36 5.042 6.147 8.805 6.147z"
+                fill="#34A853"
+            />
+            <path
+                d="M21.805 10.023h-9.76v3.955h5.605c-.218 1.213-.898 2.124-1.992 2.957l3.102 2.469c1.788-1.686 2.947-4.177 2.947-7.77 0-.68-.07-1.19-.202-1.84z"
+                fill="#4285F4"
+            />
+        </svg>
+    )
 }
 
-function getFriendlyAuthError(error) {
+function getFriendlyAuthError(error, allowedDomain) {
     const code = error?.code || ''
 
-    if (code === 'auth/invalid-credential' || code === 'auth/wrong-password') {
-        return 'Wrong password or email. Please try again.'
+    if (code === 'auth/popup-closed-by-user') {
+        return 'Google sign-in was canceled. Please try again.'
     }
 
-    if (code === 'auth/user-not-found') {
-        return 'No account found for this email.'
+    if (code === 'auth/popup-blocked') {
+        return 'Popup was blocked by your browser. Please allow popups and try again.'
     }
 
-    if (code === 'auth/email-already-in-use') {
-        return 'This email is already registered. Please login.'
+    if (code === 'auth/unauthorized-domain') {
+        return 'This app domain is not authorized in Firebase Authentication settings.'
     }
 
-    if (code === 'auth/weak-password') {
-        return 'Password must be at least 6 characters.'
+    if (code === 'auth/college-domain-required') {
+        return `Only @${allowedDomain} Google accounts are allowed.`
     }
 
-    return error?.message || 'Authentication failed. Please try again.'
+    return error?.message || 'Google sign-in failed. Please try again.'
 }
 
 export default function AuthPage() {
-    const [mode, setMode] = useState('login')
-    const [form, setForm] = useState(INITIAL_FORM)
     const [error, setError] = useState('')
     const [busy, setBusy] = useState(false)
 
@@ -56,48 +67,20 @@ export default function AuthPage() {
         navigate(profile && hasProfilePhoto ? '/swipe' : '/profile?edit=1', { replace: true })
     }, [hasProfilePhoto, navigate, profile, user])
 
-    const handleChange = (event) => {
-        const { name, value } = event.target
-        setForm((current) => ({
-            ...current,
-            [name]: value,
-        }))
-    }
-
-    const handleSubmit = async (event) => {
-        event.preventDefault()
+    const handleContinueWithGoogle = async () => {
         setError('')
-
-        const email = form.email.trim().toLowerCase()
-        const password = form.password
-
-        if (!email || !password) {
-            setError('Email and password are required.')
-            return
-        }
-
-        if (!isCollegeEmail(email)) {
-            setError(`Only @${allowedDomain} email addresses are allowed.`)
-            return
-        }
-
-        if (mode === 'signup' && password.length < 6) {
-            setError('Password must be at least 6 characters.')
-            return
-        }
-
         setBusy(true)
 
         try {
-            const userCredential =
-                mode === 'signup'
-                    ? await signUpWithCollegeEmail(email, password)
-                    : await loginWithEmail(email, password)
+            const userCredential = await continueWithGoogleCollege()
+            if (!userCredential?.user?.uid) {
+                return
+            }
 
             const latestProfile = await refreshProfile(userCredential.user.uid)
             navigate(latestProfile?.photoUrl ? '/swipe' : '/profile?edit=1', { replace: true })
         } catch (authError) {
-            setError(getFriendlyAuthError(authError))
+            setError(getFriendlyAuthError(authError, allowedDomain))
         } finally {
             setBusy(false)
         }
@@ -107,89 +90,33 @@ export default function AuthPage() {
         <main className="grid min-h-screen place-items-center bg-gray-50 px-4 py-8">
             <section className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-7">
                 <BrandMark className="mb-3" />
-                <h1 className="text-2xl font-bold text-gray-900">{mode === 'login' ? 'Login' : 'Sign Up'}</h1>
-                <p className="mt-1 text-sm text-gray-500">Only college students allowed.</p>
+                <h1 className="text-2xl font-bold text-gray-900">Continue with Google</h1>
+                <p className="mt-1 text-sm text-gray-500">Only @{allowedDomain} college accounts are allowed.</p>
 
-                <div className="mt-5 inline-flex rounded-xl border border-gray-200 bg-gray-100 p-1">
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setMode('login')
-                            setError('')
-                        }}
-                        className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${mode === 'login'
-                            ? 'bg-white text-gray-900 shadow-sm'
-                            : 'text-gray-500 hover:text-gray-900'
-                            }`}
-                    >
-                        Login
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setMode('signup')
-                            setError('')
-                        }}
-                        className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${mode === 'signup'
-                            ? 'bg-white text-gray-900 shadow-sm'
-                            : 'text-gray-500 hover:text-gray-900'
-                            }`}
-                    >
-                        Sign Up
-                    </button>
-                </div>
+                <button
+                    type="button"
+                    onClick={handleContinueWithGoogle}
+                    disabled={busy}
+                    className="mt-6 flex w-full items-center justify-center gap-3 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                    {busy ? (
+                        <>
+                            <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-700 border-t-transparent" />
+                            Connecting Google...
+                        </>
+                    ) : (
+                        <>
+                            <GoogleIcon />
+                            Continue with Google
+                        </>
+                    )}
+                </button>
 
-                <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-                    <label className="block">
-                        <span className="mb-2 block text-sm font-medium text-gray-700">College Email</span>
-                        <input
-                            type="email"
-                            name="email"
-                            value={form.email}
-                            onChange={handleChange}
-                            placeholder={`you@${allowedDomain}`}
-                            autoComplete="username"
-                            required
-                            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-gray-900 outline-none transition focus:border-[#7a1f2b] focus:ring-2 focus:ring-rose-100"
-                        />
-                    </label>
-
-                    <label className="block">
-                        <span className="mb-2 block text-sm font-medium text-gray-700">Password</span>
-                        <input
-                            type="password"
-                            name="password"
-                            value={form.password}
-                            onChange={handleChange}
-                            autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                            required
-                            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-gray-900 outline-none transition focus:border-[#7a1f2b] focus:ring-2 focus:ring-rose-100"
-                        />
-                    </label>
-
-                    {error ? (
-                        <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
-                            {error}
-                        </p>
-                    ) : null}
-
-                    <button
-                        type="submit"
-                        disabled={busy}
-                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#7a1f2b] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#651924] disabled:cursor-not-allowed disabled:bg-[#b6808a]"
-                    >
-                        {busy ? (
-                            <>
-                                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                                {mode === 'signup' ? 'Creating account...' : 'Logging in...'}
-                            </>
-                        ) : mode === 'signup' ? (
-                            'Sign Up'
-                        ) : (
-                            'Login'
-                        )}
-                    </button>
-                </form>
+                {error ? (
+                    <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+                        {error}
+                    </p>
+                ) : null}
             </section>
         </main>
     )

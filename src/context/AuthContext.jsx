@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
 import { AuthContext } from './auth-context'
 import { auth } from '../firebase/config'
-import { logoutUser } from '../services/authService'
+import { isCollegeEmail, logoutUser } from '../services/authService'
 import { getProfile } from '../services/profileService'
 
 export function AuthProvider({ children }) {
@@ -23,6 +23,16 @@ export function AuthProvider({ children }) {
             if (!firebaseUser) {
                 setProfile(null)
                 setLoading(false)
+                return
+            }
+
+            if (!isCollegeEmail(firebaseUser.email || '')) {
+                await logoutUser()
+                if (isMounted) {
+                    setUser(null)
+                    setProfile(null)
+                    setLoading(false)
+                }
                 return
             }
 

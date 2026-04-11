@@ -1,6 +1,7 @@
 import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithRedirect,
+  signInWithPopup,
   signOut,
 } from 'firebase/auth'
 import { auth } from '../firebase/config'
@@ -20,20 +21,43 @@ export function isCollegeEmail(email) {
   return domain === REQUIRED_COLLEGE_DOMAIN
 }
 
-export async function signUpWithCollegeEmail(email, password) {
-  if (!isCollegeEmail(email)) {
-    throw new Error('Only @miet.ac.in email addresses are allowed.')
-  }
-
-  return createUserWithEmailAndPassword(auth, email, password)
+function createCollegeDomainError() {
+  const error = new Error('Only @miet.ac.in Google accounts are allowed.')
+  error.code = 'auth/college-domain-required'
+  return error
 }
 
-export async function loginWithEmail(email, password) {
-  if (!isCollegeEmail(email)) {
-    throw new Error('Only @miet.ac.in email addresses are allowed.')
+export async function continueWithGoogleCollege() {
+  const provider = new GoogleAuthProvider()
+  provider.setCustomParameters({ prompt: 'select_account' })
+
+  let credential = null
+
+  try {
+    credential = await signInWithPopup(auth, provider)
+  } catch (error) {
+    const code = error?.code || ''
+    const needsRedirectFallback =
+      code === 'auth/popup-blocked' ||
+      code === 'auth/operation-not-supported-in-this-environment' ||
+      code === 'auth/cancelled-popup-request'
+
+    if (!needsRedirectFallback) {
+      throw error
+    }
+
+    await signInWithRedirect(auth, provider)
+    return null
   }
 
-  return signInWithEmailAndPassword(auth, email, password)
+  const email = credential.user?.email?.trim().toLowerCase() || ''
+
+  if (!isCollegeEmail(email)) {
+    await signOut(auth)
+    throw createCollegeDomainError()
+  }
+
+  return credential
 }
 
 export async function logoutUser() {
