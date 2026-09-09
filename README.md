@@ -12,7 +12,7 @@ A beginner-friendly React + Firebase dating app inspired by Bumble.
 1. Authentication
 
 - Email/password auth with Firebase Authentication
-- Signup/login restricted to `@miet.ac.in` emails only
+- Signup/login available with any email address
 - Protected routes for authenticated users only
 
 2. User Profile
@@ -171,7 +171,7 @@ Firebase Storage is not used in this app because profile images are stored in Ap
 
 ## Important Behavior
 
-- Only users with `@miet.ac.in` email can sign up and log in.
+- Users can sign up and log in with any valid email address.
 - If a match has no female profile, chat remains locked by the female-first rule.
 
 ## Scripts
