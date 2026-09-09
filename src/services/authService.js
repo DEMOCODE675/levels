@@ -1,33 +1,22 @@
 import {
+  createUserWithEmailAndPassword,
   GoogleAuthProvider,
+  signInWithEmailAndPassword,
   signInWithRedirect,
   signInWithPopup,
   signOut,
 } from 'firebase/auth'
 import { auth } from '../firebase/config'
 
-const REQUIRED_COLLEGE_DOMAIN = 'miet.ac.in'
-
-function extractDomain(email) {
-  return email.trim().toLowerCase().split('@')[1] || ''
+export async function signUpWithEmail(email, password) {
+  return createUserWithEmailAndPassword(auth, email, password)
 }
 
-export function getAllowedCollegeDomains() {
-  return [REQUIRED_COLLEGE_DOMAIN]
+export async function loginWithEmail(email, password) {
+  return signInWithEmailAndPassword(auth, email, password)
 }
 
-export function isCollegeEmail(email) {
-  const domain = extractDomain(email)
-  return domain === REQUIRED_COLLEGE_DOMAIN
-}
-
-function createCollegeDomainError() {
-  const error = new Error('Only @miet.ac.in Google accounts are allowed.')
-  error.code = 'auth/college-domain-required'
-  return error
-}
-
-export async function continueWithGoogleCollege() {
+export async function continueWithGoogle() {
   const provider = new GoogleAuthProvider()
   provider.setCustomParameters({ prompt: 'select_account' })
 
@@ -48,13 +37,6 @@ export async function continueWithGoogleCollege() {
 
     await signInWithRedirect(auth, provider)
     return null
-  }
-
-  const email = credential.user?.email?.trim().toLowerCase() || ''
-
-  if (!isCollegeEmail(email)) {
-    await signOut(auth)
-    throw createCollegeDomainError()
   }
 
   return credential

@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { continueWithGoogleCollege, getAllowedCollegeDomains } from '../services/authService'
+import { continueWithGoogle, loginWithEmail, signUpWithEmail } from '../services/authService'
 import BrandMark from '../components/BrandMark'
+
+const INITIAL_FORM = {
+    email: '',
+    password: '',
+}
 
 function GoogleIcon() {
     return (
@@ -27,8 +32,32 @@ function GoogleIcon() {
     )
 }
 
-function getFriendlyAuthError(error, allowedDomain) {
+function getFriendlyAuthError(error) {
     const code = error?.code || ''
+
+    if (code === 'auth/invalid-credential' || code === 'auth/wrong-password') {
+        return 'Wrong password or email. Please try again.'
+    }
+
+    if (code === 'auth/user-not-found') {
+        return 'No account found for this email.'
+    }
+
+    if (code === 'auth/email-already-in-use') {
+        return 'This email is already registered. Please login.'
+    }
+
+    if (code === 'auth/invalid-email') {
+        return 'Please enter a valid email address.'
+    }
+
+    if (code === 'auth/operation-not-allowed') {
+        return 'Email/password sign-in is not enabled in Firebase Authentication.'
+    }
+
+    if (code === 'auth/weak-password') {
+        return 'Password must be at least 6 characters.'
+    }
 
     if (code === 'auth/popup-closed-by-user') {
         return 'Google sign-in was canceled. Please try again.'
@@ -42,22 +71,18 @@ function getFriendlyAuthError(error, allowedDomain) {
         return 'This app domain is not authorized in Firebase Authentication settings.'
     }
 
-    if (code === 'auth/college-domain-required') {
-        return `Only @${allowedDomain} Google accounts are allowed.`
-    }
-
     return error?.message || 'Google sign-in failed. Please try again.'
 }
 
 export default function AuthPage() {
+    const [mode, setMode] = useState('login')
+    const [form, setForm] = useState(INITIAL_FORM)
     const [error, setError] = useState('')
     const [busy, setBusy] = useState(false)
 
     const { profile, refreshProfile, user } = useAuth()
     const navigate = useNavigate()
     const hasProfilePhoto = Boolean(profile?.photoUrl)
-
-    const allowedDomain = getAllowedCollegeDomains()[0] || 'miet.ac.in'
 
     useEffect(() => {
         if (!user) {
@@ -67,12 +92,52 @@ export default function AuthPage() {
         navigate(profile && hasProfilePhoto ? '/swipe' : '/profile?edit=1', { replace: true })
     }, [hasProfilePhoto, navigate, profile, user])
 
+    const handleChange = (event) => {
+        const { name, value } = event.target
+        setForm((current) => ({
+            ...current,
+            [name]: value,
+        }))
+    }
+
+    const handleSubmit = async (event) => {
+        event.preventDefault()
+        setError('')
+
+        const email = form.email.trim().toLowerCase()
+        const password = form.password
+
+        if (!email || !password) {
+            setError('Email and password are required.')
+            return
+        }
+
+        if (mode === 'signup' && password.length < 6) {
+            setError('Password must be at least 6 characters.')
+            return
+        }
+
+        setBusy(true)
+
+        try {
+            const userCredential = mode === 'signup'
+                ? await signUpWithEmail(email, password)
+                : await loginWithEmail(email, password)
+            const latestProfile = await refreshProfile(userCredential.user.uid)
+            navigate(latestProfile?.photoUrl ? '/swipe' : '/profile?edit=1', { replace: true })
+        } catch (authError) {
+            setError(getFriendlyAuthError(authError))
+        } finally {
+            setBusy(false)
+        }
+    }
+
     const handleContinueWithGoogle = async () => {
         setError('')
         setBusy(true)
 
         try {
-            const userCredential = await continueWithGoogleCollege()
+            const userCredential = await continueWithGoogle()
             if (!userCredential?.user?.uid) {
                 return
             }
@@ -80,7 +145,7 @@ export default function AuthPage() {
             const latestProfile = await refreshProfile(userCredential.user.uid)
             navigate(latestProfile?.photoUrl ? '/swipe' : '/profile?edit=1', { replace: true })
         } catch (authError) {
-            setError(getFriendlyAuthError(authError, allowedDomain))
+            setError(getFriendlyAuthError(authError))
         } finally {
             setBusy(false)
         }
@@ -90,8 +155,70 @@ export default function AuthPage() {
         <main className="grid min-h-screen place-items-center bg-gray-50 px-4 py-8">
             <section className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-7">
                 <BrandMark className="mb-3" />
-                <h1 className="text-2xl font-bold text-gray-900">Continue with Google</h1>
-                <p className="mt-1 text-sm text-gray-500">Only @{allowedDomain} college accounts are allowed.</p>
+                <h1 className="text-2xl font-bold text-gray-900">{mode === 'login' ? 'Login' : 'Sign Up'}</h1>
+                <p className="mt-1 text-sm text-gray-500">Use any email address to join.</p>
+
+                <div className="mt-5 inline-flex rounded-xl border border-gray-200 bg-gray-100 p-1">
+                    {['login', 'signup'].map((nextMode) => (
+                        <button
+                            key={nextMode}
+                            type="button"
+                            onClick={() => {
+                                setMode(nextMode)
+                                setError('')
+                            }}
+                            className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${mode === nextMode
+                                ? 'bg-white text-gray-900 shadow-sm'
+                                : 'text-gray-500 hover:text-gray-900'
+                                }`}
+                        >
+                            {nextMode === 'login' ? 'Login' : 'Sign Up'}
+                        </button>
+                    ))}
+                </div>
+
+                <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+                    <label className="block">
+                        <span className="mb-2 block text-sm font-medium text-gray-700">Email</span>
+                        <input
+                            type="email"
+                            name="email"
+                            value={form.email}
+                            onChange={handleChange}
+                            placeholder="you@example.com"
+                            autoComplete="username"
+                            required
+                            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-gray-900 outline-none transition focus:border-[#7a1f2b] focus:ring-2 focus:ring-rose-100"
+                        />
+                    </label>
+
+                    <label className="block">
+                        <span className="mb-2 block text-sm font-medium text-gray-700">Password</span>
+                        <input
+                            type="password"
+                            name="password"
+                            value={form.password}
+                            onChange={handleChange}
+                            autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                            required
+                            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-gray-900 outline-none transition focus:border-[#7a1f2b] focus:ring-2 focus:ring-rose-100"
+                        />
+                    </label>
+
+                    <button
+                        type="submit"
+                        disabled={busy}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#7a1f2b] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#651924] disabled:cursor-not-allowed disabled:bg-[#b6808a]"
+                    >
+                        {busy ? (mode === 'signup' ? 'Creating account...' : 'Logging in...') : mode === 'signup' ? 'Sign Up' : 'Login'}
+                    </button>
+                </form>
+
+                <div className="my-5 flex items-center gap-3 text-xs text-gray-400">
+                    <span className="h-px flex-1 bg-gray-200" />
+                    OR
+                    <span className="h-px flex-1 bg-gray-200" />
+                </div>
 
                 <button
                     type="button"
